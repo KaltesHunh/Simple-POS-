@@ -7,7 +7,7 @@ import java.util.*;
 public class Main {
 
     static final String PRODUCTOS = "productos.txt";       // inventario (editable)
-    static final String CARPETA_BD = "bd";                // "base de datos" local
+    static final String CARPETA_BD = "bd";                 // "base de datos" local
     static final String VENTAS_ACTUAL = CARPETA_BD + "/ventas_actual.txt";
     static final double IVA = 0.16;
 
@@ -16,11 +16,17 @@ public class Main {
     // Un producto del inventario: nombre,precio,cantidad
     static class Producto {
         String nombre; double precio; int cantidad;
+        Producto(String nombre, double precio, int cantidad) {
+            this.nombre = nombre; this.precio = precio; this.cantidad = cantidad;
+        }
     }
 
     // Un renglón de la venta
     static class Item {
         String nombre; int cantidad; double precio;
+        Item(String nombre, int cantidad, double precio) {
+            this.nombre = nombre; this.cantidad = cantidad; this.precio = precio;
+        }
     }
 
     public static void main(String[] args) throws IOException {
@@ -32,14 +38,36 @@ public class Main {
             System.out.println("\n1) Nueva venta  2) Corte  3) Salir");
             String op = in.nextLine().trim();
             if (op.equals("1")) vender();
-            else if (op.equals("2")) corte();
+            else if (op.equals("2")) {
+                if (corte(VENTAS_ACTUAL, CARPETA_BD)) System.out.println("Corte realizado.");
+                else System.out.println("No hay ventas para cortar.");
+            }
             else if (op.equals("3")) break;
         }
     }
 
+    // ---------- LÓGICA PURA (fácil de probar) ----------
+    static double calcularSubtotal(List<Item> carrito) {
+        double s = 0;
+        for (Item it : carrito) s += it.precio * it.cantidad;
+        return s;
+    }
+
+    static double calcularTotal(double subtotal) {
+        return subtotal * (1 + IVA);
+    }
+
+    static boolean hayStock(Producto p, int cantidad) {
+        return p != null && cantidad > 0 && cantidad <= p.cantidad;
+    }
+
+    static boolean metodoPagoValido(String pago) {
+        return pago.equals("efectivo") || pago.equals("tarjeta");
+    }
+
     // ---------- VENTA ----------
     static void vender() throws IOException {
-        List<Producto> productos = cargarProductos();
+        List<Producto> productos = cargarProductos(PRODUCTOS);
         List<Item> carrito = new ArrayList<>();
 
         System.out.println("\n=== NUEVA VENTA ===");
@@ -64,24 +92,21 @@ public class Main {
             try { cant = Integer.parseInt(in.nextLine().trim()); }
             catch (NumberFormatException e) { System.out.println("Número inválido."); continue; }
 
-            if (cant <= 0 || cant > p.cantidad) {
+            if (!hayStock(p, cant)) {
                 System.out.println("Cantidad inválida. Solo hay " + p.cantidad);
                 continue;
             }
 
             p.cantidad -= cant;   // se descuenta en memoria; se guarda al cerrar la venta
-            Item it = new Item();
-            it.nombre = p.nombre; it.cantidad = cant; it.precio = p.precio;
-            carrito.add(it);
+            carrito.add(new Item(p.nombre, cant, p.precio));
         }
 
         if (carrito.isEmpty()) { System.out.println("Venta vacía."); return; }
 
         // Sumatoria + IVA
-        double subtotal = 0;
-        for (Item it : carrito) subtotal += it.precio * it.cantidad;
-        double iva = subtotal * IVA;
-        double total = subtotal + iva;
+        double subtotal = calcularSubtotal(carrito);
+        double total = calcularTotal(subtotal);
+        double iva = total - subtotal;
 
         System.out.printf("%nSubtotal: $%.2f%nIVA 16%%: $%.2f%nTOTAL:    $%.2f%n", subtotal, iva, total);
 
@@ -96,11 +121,11 @@ public class Main {
         while (true) {
             System.out.print("Método de pago (efectivo/tarjeta): ");
             pago = in.nextLine().trim().toLowerCase();
-            if (pago.equals("efectivo") || pago.equals("tarjeta")) break;
+            if (metodoPagoValido(pago)) break;
             System.out.println("Solo se acepta efectivo o tarjeta.");
         }
 
-        guardarProductos(productos);   // actualiza inventario
+        guardarProductos(productos, PRODUCTOS);   // actualiza inventario
 
         // Escribe en el archivo de ventas (true = agregar al final)
         try (FileWriter fw = new FileWriter(VENTAS_ACTUAL, true)) {
@@ -114,14 +139,14 @@ public class Main {
 
     // ---------- CORTE ----------
     // Renombra ventas_actual.txt; la siguiente venta creará uno nuevo.
-    static void corte() {
-        File actual = new File(VENTAS_ACTUAL);
-        if (!actual.exists()) { System.out.println("No hay ventas para cortar."); return; }
+    // Devuelve false si no había ventas que cortar.
+    static boolean corte(String archivoActual, String carpeta) {
+        File actual = new File(archivoActual);
+        if (!actual.exists()) return false;
 
         String fecha = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        File cerrado = new File(CARPETA_BD + "/corte_" + fecha + ".txt");
-        actual.renameTo(cerrado);
-        System.out.println("Corte realizado: " + cerrado.getName());
+        File cerrado = new File(carpeta + "/corte_" + fecha + ".txt");
+        return actual.renameTo(cerrado);
     }
 
     // ---------- INVENTARIO ----------
@@ -131,22 +156,21 @@ public class Main {
         return null;
     }
 
-    static List<Producto> cargarProductos() throws IOException {
+    static List<Producto> cargarProductos(String ruta) throws IOException {
         List<Producto> lista = new ArrayList<>();
-        for (String linea : Files.readAllLines(Paths.get(PRODUCTOS))) {
+        for (String linea : Files.readAllLines(Paths.get(ruta))) {
             if (linea.trim().isEmpty()) continue;
             String[] partes = linea.split(",");
-            Producto p = new Producto();
-            p.nombre = partes[0].trim();
-            p.precio = Double.parseDouble(partes[1].trim());
-            p.cantidad = Integer.parseInt(partes[2].trim());
-            lista.add(p);
+            lista.add(new Producto(
+                partes[0].trim(),
+                Double.parseDouble(partes[1].trim()),
+                Integer.parseInt(partes[2].trim())));
         }
         return lista;
     }
 
-    static void guardarProductos(List<Producto> lista) throws IOException {
-        try (PrintWriter pw = new PrintWriter(PRODUCTOS)) {
+    static void guardarProductos(List<Producto> lista, String ruta) throws IOException {
+        try (PrintWriter pw = new PrintWriter(ruta)) {
             for (Producto p : lista)
                 pw.println(p.nombre + "," + String.format(Locale.US, "%.2f", p.precio) + "," + p.cantidad);
         }

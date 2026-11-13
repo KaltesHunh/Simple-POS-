@@ -2,6 +2,6 @@ Cien años de soledad,250.00,10
 El principito,120.50,1
 Don Quijote,300.00,40
 Pedro Paramo,150.00,8
-crimen y castigo,450.50,5
+crimen y castigo,450.50,0
 el aleph,250.99,30
-higado encebollado,240.00,79
+
